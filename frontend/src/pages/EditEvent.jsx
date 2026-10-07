@@ -1,0 +1,714 @@
+import { useState, useEffect } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  FiCalendar,
+  FiClock,
+  FiMapPin,
+  FiUsers,
+  FiTag,
+  FiImage,
+  FiDollarSign,
+  FiAlignLeft,
+  FiCheckCircle,
+  FiType,
+  FiLoader,
+  FiArrowLeft,
+  FiSave,
+  FiEye,
+  FiUser,
+  FiSmartphone,
+} from "react-icons/fi";
+import { categories } from "../data/mockEvents";
+import { getEventById, updateEvent } from "../services/api";
+import { useAuth } from "../context/AuthContext";
+import { normalizeImageUrl, handleImageError } from "../utils/imageHelper";
+import "./CreateEvent.css";
+
+const imagePresets = [
+  { label: "Tech / AI", url: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&q=80" },
+  { label: "Concert / Music", url: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&q=80" },
+  { label: "Sports", url: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&q=80" },
+  { label: "Startup / Business", url: "https://images.unsplash.com/photo-1515187029135-18ee286d815b?w=800&q=80" },
+  { label: "Art / Design", url: "https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=800&q=80" },
+  { label: "Food / Cooking", url: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=800&q=80" },
+];
+
+export default function EditEvent() {
+  const { id } = useParams();
+  const { user, isAdmin } = useAuth();
+  const navigate = useNavigate();
+
+  const [form, setForm] = useState({
+    title: "",
+    category: "",
+    date: "",
+    time: "",
+    location: "",
+    description: "",
+    seats: "",
+    price: "",
+    organizerUpiId: "",
+    organizerPayeeName: "",
+    organizerQrCode: "",
+    tags: "",
+    image: "",
+    organizer: "",
+  });
+
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [savedSuccess, setSavedSuccess] = useState(false);
+  const [apiError, setApiError] = useState(null);
+
+  // Calculate today's date YYYY-MM-DD for min date constraint
+  const getTodayString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  const todayDate = getTodayString();
+
+  // Fetch initial event data
+  useEffect(() => {
+    const fetchEvent = async () => {
+      try {
+        setInitialLoading(true);
+        setApiError(null);
+        const data = await getEventById(id);
+        if (!data) {
+          throw new Error("Event not found");
+        }
+
+        const tagsString = Array.isArray(data.tags)
+          ? data.tags.join(", ")
+          : data.tags || "";
+
+        let formattedDate = data.date || "";
+        if (formattedDate && formattedDate.includes("T")) {
+          formattedDate = formattedDate.split("T")[0];
+        }
+
+        setForm({
+          title: data.title || "",
+          category: data.category || "",
+          date: formattedDate,
+          time: data.time || "",
+          location: data.location || "",
+          description: data.description || "",
+          seats: data.seats ? String(data.seats) : "",
+          price: data.price !== undefined ? String(data.price) : "0",
+          organizerUpiId: data.organizerUpiId || "",
+          organizerPayeeName: data.organizerPayeeName || "",
+          organizerQrCode: data.organizerQrCode || "",
+          tags: tagsString,
+          image: data.image || "",
+          organizer: data.organizer || "",
+        });
+      } catch (err) {
+        setApiError(err.message || "Failed to load event details");
+      } finally {
+        setInitialLoading(false);
+      }
+    };
+
+    fetchEvent();
+  }, [id]);
+
+  const validate = () => {
+    const e = {};
+    if (!form.title.trim()) e.title = "Event title is required";
+    if (!form.category) e.category = "Please select a category";
+    if (!form.date) {
+      e.date = "Event date is required";
+    } else if (form.date < todayDate) {
+      e.date = "Past dates are not allowed. Please select today or a future date.";
+    }
+    if (!form.time.trim()) e.time = "Time is required";
+    if (!form.location.trim()) e.location = "Location is required";
+    if (!form.description.trim()) e.description = "Description is required";
+    if (!form.seats || isNaN(form.seats) || +form.seats < 1)
+      e.seats = "Enter a valid seat count";
+    return e;
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
+    if (apiError) setApiError(null);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs);
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setApiError(null);
+
+      const normalizedImg = form.image.trim()
+        ? normalizeImageUrl(form.image.trim(), form.category)
+        : undefined;
+
+      const payload = {
+        title: form.title.trim(),
+        category: form.category,
+        date: form.date,
+        time: form.time.trim(),
+        location: form.location.trim(),
+        description: form.description.trim(),
+        seats: Number(form.seats),
+        price: Number(form.price) || 0,
+        tags: form.tags
+          ? form.tags
+              .split(",")
+              .map((t) => t.trim())
+              .filter(Boolean)
+          : [],
+        image: normalizedImg,
+        organizer: form.organizer.trim() || (user ? user.name : "Event Organizer"),
+      };
+
+      await updateEvent(id, payload);
+      setSavedSuccess(true);
+      setTimeout(() => {
+        navigate(`/events/${id}`);
+      }, 1500);
+    } catch (err) {
+      setApiError(err.message || "Failed to update event");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (initialLoading) {
+    return (
+      <div className="page-wrapper create-page">
+        <div className="container" style={{ textAlign: "center", padding: "100px 0" }}>
+          <FiLoader className="spin-icon" size={36} style={{ color: "var(--accent-light)", marginBottom: "16px" }} />
+          <p style={{ color: "var(--text-secondary)" }}>Loading event for editing...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const previewImage = normalizeImageUrl(form.image, form.category);
+  const tagList = form.tags
+    ? form.tags.split(",").map((t) => t.trim()).filter(Boolean)
+    : [];
+
+  return (
+    <div className="page-wrapper create-page">
+      {/* ── HEADER ── */}
+      <div className="create-header">
+        <div className="create-header-orb" />
+        <div className="container create-header-inner">
+          <div className="create-header-topbar">
+            <div>
+              <p className="section-label">✏️ EDIT MODE</p>
+              <h1 className="section-title">Update Event Details</h1>
+              <p className="section-subtitle">
+                Modify timing, venue, description, cover image, or capacity. Real-time updates sync to MongoDB.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <Link to={`/events/${id}`} className="header-back-link">
+                <FiEye /> View Live Event
+              </Link>
+              <button
+                type="button"
+                className="header-back-link"
+                onClick={() => navigate(-1)}
+              >
+                <FiArrowLeft /> Back
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="container">
+        {/* Success Banner */}
+        {savedSuccess && (
+          <div className="success-banner animate-fadeIn" style={{ marginTop: "24px", marginBottom: "8px" }}>
+            <FiCheckCircle size={28} />
+            <div>
+              <strong>Event Changes Saved Successfully! 🎉</strong>
+              <div>Redirecting you to the public event page...</div>
+            </div>
+          </div>
+        )}
+
+        {/* Error */}
+        {apiError && (
+          <div className="auth-error-banner animate-fadeIn" style={{ marginTop: "24px", marginBottom: "8px" }}>
+            ⚠️ {apiError}
+          </div>
+        )}
+
+        <div className="create-layout">
+          {/* ── FORM SECTIONS ── */}
+          <form className="create-form" onSubmit={handleSubmit} noValidate>
+            {/* Section 1: Basic Info */}
+            <div className="form-section">
+              <h3 className="form-section-title">
+                <FiType /> Basic Information
+              </h3>
+
+              {/* Title */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="title">
+                  Event Title <span className="req">*</span>
+                </label>
+                <input
+                  id="title"
+                  type="text"
+                  name="title"
+                  placeholder="e.g. Annual Tech Symposium 2025"
+                  value={form.title}
+                  onChange={handleChange}
+                  className={`form-input ${errors.title ? "error" : ""}`}
+                />
+                {errors.title && <span className="form-error">{errors.title}</span>}
+              </div>
+
+              <div className="form-row">
+                {/* Category */}
+                <div className="form-group">
+                  <label className="form-label" htmlFor="category">
+                    Category <span className="req">*</span>
+                  </label>
+                  <select
+                    id="category"
+                    name="category"
+                    value={form.category}
+                    onChange={handleChange}
+                    className={`form-select ${errors.category ? "error" : ""}`}
+                  >
+                    <option value="">Select Category</option>
+                    {categories.filter((c) => c !== "All").map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.category && <span className="form-error">{errors.category}</span>}
+                </div>
+
+                {/* Organizer */}
+                <div className="form-group">
+                  <label className="form-label" htmlFor="organizer">
+                    Organizer / Society Name
+                  </label>
+                  <input
+                    id="organizer"
+                    type="text"
+                    name="organizer"
+                    placeholder="e.g. IEEE Student Branch"
+                    value={form.organizer}
+                    onChange={handleChange}
+                    className="form-input"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Date, Time & Venue */}
+            <div className="form-section">
+              <h3 className="form-section-title">
+                <FiCalendar /> Date, Time & Location
+              </h3>
+
+              <div className="form-row">
+                {/* Date */}
+                <div className="form-group">
+                  <label className="form-label" htmlFor="date">
+                    Event Date <span className="req">*</span> (Future dates only)
+                  </label>
+                  <input
+                    id="date"
+                    type="date"
+                    name="date"
+                    value={form.date}
+                    onChange={handleChange}
+                    min={todayDate}
+                    className={`form-input ${errors.date ? "error" : ""}`}
+                  />
+                  {errors.date && <span className="form-error">{errors.date}</span>}
+                </div>
+
+                {/* Time */}
+                <div className="form-group">
+                  <label className="form-label" htmlFor="time">
+                    Event Time <span className="req">*</span>
+                  </label>
+                  <input
+                    id="time"
+                    type="text"
+                    name="time"
+                    placeholder="e.g. 10:00 AM - 4:00 PM"
+                    value={form.time}
+                    onChange={handleChange}
+                    className={`form-input ${errors.time ? "error" : ""}`}
+                  />
+                  {errors.time && <span className="form-error">{errors.time}</span>}
+                </div>
+              </div>
+
+              {/* Location */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="location">
+                  Venue / Location <span className="req">*</span>
+                </label>
+                <div className="input-with-icon">
+                  <FiMapPin className="input-icon" />
+                  <input
+                    id="location"
+                    type="text"
+                    name="location"
+                    placeholder="e.g. Main Auditorium, Block A, Campus"
+                    value={form.location}
+                    onChange={handleChange}
+                    className={`form-input icon-padded ${errors.location ? "error" : ""}`}
+                  />
+                </div>
+                {errors.location && <span className="form-error">{errors.location}</span>}
+              </div>
+            </div>
+
+            {/* Section 3: Description */}
+            <div className="form-section">
+              <h3 className="form-section-title">
+                <FiAlignLeft /> Description & Agenda
+              </h3>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="description">
+                  Full Description <span className="req">*</span>
+                </label>
+                <textarea
+                  id="description"
+                  name="description"
+                  rows={5}
+                  placeholder="Describe the event, agenda, rules, guest speakers, eligibility..."
+                  value={form.description}
+                  onChange={handleChange}
+                  className={`form-textarea ${errors.description ? "error" : ""}`}
+                />
+                {errors.description && (
+                  <span className="form-error">{errors.description}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Section 4: Capacity & Pricing */}
+            <div className="form-section">
+              <h3 className="form-section-title">
+                <FiUsers /> Capacity & Entry Fee
+              </h3>
+
+              <div className="form-row">
+                {/* Seats */}
+                <div className="form-group">
+                  <label className="form-label" htmlFor="seats">
+                    Total Seats / Max Capacity <span className="req">*</span>
+                  </label>
+                  <input
+                    id="seats"
+                    type="number"
+                    name="seats"
+                    min="1"
+                    placeholder="e.g. 200"
+                    value={form.seats}
+                    onChange={handleChange}
+                    className={`form-input ${errors.seats ? "error" : ""}`}
+                  />
+                  {errors.seats && <span className="form-error">{errors.seats}</span>}
+                </div>
+
+                {/* Price */}
+                <div className="form-group">
+                  <label className="form-label" htmlFor="price">
+                    Entry Fee (₹) — 0 for Free
+                  </label>
+                  <div className="input-with-icon">
+                    <FiDollarSign className="input-icon" />
+                    <input
+                      id="price"
+                      type="number"
+                      name="price"
+                      min="0"
+                      placeholder="0"
+                      value={form.price}
+                      onChange={handleChange}
+                      className="form-input icon-padded"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Organizer Payment Receiving Setup (for paid events) */}
+              {Number(form.price) > 0 && (
+                <div className="payment-receiver-box animate-fadeIn">
+                  <div className="receiver-header">
+                    <span className="receiver-badge">
+                      <FiSmartphone /> Organizer Payment Receiving Setup
+                    </span>
+                    <h4 className="receiver-title">Payment Receiving Account Details</h4>
+                    <p className="receiver-desc">
+                      When attendees purchase tickets for this event, payments will be routed directly to this UPI ID or payee account.
+                    </p>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="organizerUpiId">
+                        Organizer UPI ID (GPay / PhonePe / Paytm / BHIM)
+                      </label>
+                      <input
+                        id="organizerUpiId"
+                        name="organizerUpiId"
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. 9812345678@paytm or techclub@okaxis"
+                        value={form.organizerUpiId}
+                        onChange={handleChange}
+                      />
+                      <span className="input-tip">
+                        💡 Attendees will see this verified UPI ID and QR code during ticket checkout.
+                      </span>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="organizerPayeeName">
+                        Account Holder / Club Name
+                      </label>
+                      <input
+                        id="organizerPayeeName"
+                        name="organizerPayeeName"
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Tech Club NSUT or Annu Maurya"
+                        value={form.organizerPayeeName}
+                        onChange={handleChange}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="organizerQrCode">
+                      Custom Scanner / QR Code Image URL (Optional)
+                    </label>
+                    <input
+                      id="organizerQrCode"
+                      name="organizerQrCode"
+                      type="url"
+                      className="form-input"
+                      placeholder="Paste image link of your custom UPI QR scanner if available"
+                      value={form.organizerQrCode}
+                      onChange={handleChange}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Section 5: Media & Tags */}
+            <div className="form-section">
+              <h3 className="form-section-title">
+                <FiImage /> Cover Image & Tags
+              </h3>
+
+              {/* Image URL */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="image">
+                  Cover Image URL (Instagram, Drive, Unsplash, or Direct link)
+                </label>
+                <input
+                  id="image"
+                  type="url"
+                  name="image"
+                  placeholder="Paste Instagram post link (e.g. instagram.com/p/...) or image URL"
+                  value={form.image}
+                  onChange={handleChange}
+                  className="form-input"
+                />
+                <p className="input-tip">
+                  📸 Instagram links (<code>instagram.com/p/...</code>), Google Drive, Unsplash, etc. automatic load honge.
+                </p>
+              </div>
+
+              {/* Quick Image Presets */}
+              <div className="presets-wrap">
+                <span className="presets-label">Quick Image Presets:</span>
+                <div className="presets-pills">
+                  {imagePresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      className={`preset-pill ${form.image === p.url ? "active" : ""}`}
+                      onClick={() => setForm((prev) => ({ ...prev, image: p.url }))}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tags */}
+              <div className="form-group" style={{ marginTop: "14px" }}>
+                <label className="form-label" htmlFor="tags">
+                  Tags (comma separated)
+                </label>
+                <div className="input-with-icon">
+                  <FiTag className="input-icon" />
+                  <input
+                    id="tags"
+                    type="text"
+                    name="tags"
+                    placeholder="e.g. AI, Workshop, Coding, Certificates"
+                    value={form.tags}
+                    onChange={handleChange}
+                    className="form-input icon-padded"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="form-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => navigate(-1)}
+              >
+                <FiArrowLeft /> Cancel
+              </button>
+
+              <button
+                type="submit"
+                className="btn-primary form-submit-btn"
+                disabled={saving}
+                id="update-event-btn"
+              >
+                {saving ? (
+                  <>
+                    <FiLoader className="spin-icon" /> Saving Changes to MongoDB...
+                  </>
+                ) : (
+                  <>
+                    <FiSave /> Save Changes
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+
+          {/* ── LIVE PREVIEW SIDEBAR ── */}
+          <div className="create-preview">
+            <div className="preview-header-bar">
+              <span className="preview-label-tag">
+                <span className="live-pulse-dot" /> Live Card Preview
+              </span>
+              <span className="preview-live-hint">Updates in real-time</span>
+            </div>
+
+            <div className="preview-card">
+              <div className="preview-img-wrap">
+                <img
+                  src={previewImage}
+                  alt="Preview"
+                  className="preview-img"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => handleImageError(e, form.category)}
+                />
+                <div className="preview-img-overlay" />
+
+                <div className="preview-badges-overlay">
+                  <span className="badge badge-purple">
+                    {form.category || "Category"}
+                  </span>
+                  {+form.price === 0 || !form.price ? (
+                    <span className="badge badge-green">Free</span>
+                  ) : (
+                    <span className="badge badge-pink">₹{form.price}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="preview-body">
+                <h3 className="preview-title">
+                  {form.title || "Your Event Title Here"}
+                </h3>
+
+                <div className="preview-organizer-pill">
+                  <FiUser /> Organized by {form.organizer || user?.name || "Campus Organizer"}
+                </div>
+
+                <div className="preview-meta-grid">
+                  <div className="preview-meta-item">
+                    <FiCalendar />
+                    <span>
+                      {form.date
+                        ? new Date(form.date).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })
+                        : "Date"}
+                    </span>
+                  </div>
+                  <div className="preview-meta-item">
+                    <FiClock />
+                    <span>{form.time || "Timing"}</span>
+                  </div>
+                  <div className="preview-meta-item">
+                    <FiMapPin />
+                    <span>{form.location ? form.location.split(",")[0] : "Venue"}</span>
+                  </div>
+                  <div className="preview-meta-item">
+                    <FiUsers />
+                    <span>{form.seats || 0} seats</span>
+                  </div>
+                </div>
+
+                {form.description && (
+                  <p className="preview-desc">
+                    {form.description}
+                  </p>
+                )}
+
+                {tagList.length > 0 && (
+                  <div className="preview-tags-wrap">
+                    {tagList.map((t) => (
+                      <span key={t} className="preview-tag-pill">
+                        #{t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="preview-progress-mock">
+                  <div className="preview-progress-text">
+                    <span>Capacity: {form.seats || 0} Total</span>
+                    <span style={{ color: "#4ade80" }}>Open for registrations</span>
+                  </div>
+                  <div className="progress-bar mini">
+                    <div className="progress-fill" style={{ width: "25%" }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
