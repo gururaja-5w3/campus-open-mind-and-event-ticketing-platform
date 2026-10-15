@@ -195,5 +195,7 @@ The repository includes a ready-to-print **55+ page formal academic project repo
 
 ## 📄 License
 This project is open-source and developed for academic and campus management purposes under the [MIT License](LICENSE).
-#   C A M P U S - E V E N T - M A N A G E M N T  
+#   C A M P U S - E V E N T - M A N A G E M N T 
+ 
+ #   c a m p u s - o p e n - m i n d - a n d - e v e n t - t i c k e t i n g - p l a t f o r m  
  
