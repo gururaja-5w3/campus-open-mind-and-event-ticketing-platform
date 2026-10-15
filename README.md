@@ -128,6 +128,19 @@ npm run dev
 
 ---
 
+## ☁️ Deploy with Render Blueprint
+
+This repository includes a `render.yaml` Blueprint for deploying the Express API and Vite frontend as separate Render services.
+
+1. Push this repository to GitHub and select **New + → Blueprint** in Render.
+2. Connect the repository and deploy using `render.yaml`.
+3. When prompted, set `MONGO_URI` on `eventhub-api` to a MongoDB Atlas connection string. Allow network access from Render in your Atlas Network Access settings.
+4. Render generates `JWT_SECRET` and connects the frontend to the API automatically. The frontend is published as a static site, with client-side routes rewritten to `index.html`.
+
+The backend health check is available at `/`. The frontend build uses Node.js 22.12 or newer, as required by the project dependencies. Do not commit `.env` files; configure production values in the Render dashboard.
+
+---
+
 ## 🔑 Default Test Accounts (From `seed.js`)
 
 | Role | Email | Password | Access Level |
